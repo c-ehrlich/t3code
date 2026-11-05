@@ -122,9 +122,13 @@ export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string
 
 export function getDesktopUpdateInstallConfirmationMessage(
   state: Pick<DesktopUpdateState, "availableVersion" | "downloadedVersion">,
+  interruptedThreads: string | null,
 ): string {
   const version = state.downloadedVersion ?? state.availableVersion;
-  return `Install update${version ? ` ${version}` : ""} and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.`;
+  const impact =
+    interruptedThreads ??
+    "Any running tasks will be interrupted. Make sure you're ready before continuing.";
+  return `Install update${version ? ` ${version}` : ""} and restart T3 Code?\n\n${impact}`;
 }
 
 export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): string | null {

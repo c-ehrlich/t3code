@@ -107,7 +107,12 @@ import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentSessionStatesAtom } from "~/state/session";
 import { canUpdateServer } from "../ServerUpdateAction";
 import { useUpdateEverythingRun } from "../sidebar/updateEverythingRun";
-import { awaitsTrackSwitch, channelSwitchLabel } from "../sidebar/updateEverything.logic";
+import { readInterruptedThreads } from "../sidebar/UpdateEverythingDialog";
+import {
+  awaitsTrackSwitch,
+  channelSwitchLabel,
+  collectRestartingMachines,
+} from "../sidebar/updateEverything.logic";
 import { isHostedByThisApp } from "../sidebar/useUpdateEverything";
 
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
@@ -214,6 +219,18 @@ function AboutVersionSection() {
         confirmed = await ensureLocalApi().dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(
             updateState ?? { availableVersion: null, downloadedVersion: null },
+            readInterruptedThreads(
+              collectRestartingMachines(
+                environments.map((environment) => ({
+                  environmentId: environment.environmentId,
+                  serverConfig: environment.serverConfig,
+                  connected: environment.connection.phase === "connected",
+                  hostedByThisApp: isHostedByThisApp(environment),
+                })),
+                [],
+                true,
+              ),
+            ),
           ),
         );
       } catch (error) {

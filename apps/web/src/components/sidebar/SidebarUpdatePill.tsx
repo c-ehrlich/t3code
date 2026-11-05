@@ -42,7 +42,7 @@ import {
 } from "./DesktopUpdateStatusIcon";
 import { SidebarUpdateReleaseNotes } from "./SidebarUpdateReleaseNotes";
 import { SidebarUpdateCapsule } from "./SidebarUpdateCapsule";
-import { UpdateEverythingDialog } from "./UpdateEverythingDialog";
+import { readInterruptedThreads, UpdateEverythingDialog } from "./UpdateEverythingDialog";
 import type { UpdateEverythingRun, UpdateRunLocalState } from "./updateEverything.logic";
 import {
   clearSavedUpdateEverythingResult,
@@ -280,6 +280,26 @@ function SidebarUpdateControl() {
     setReleaseNotesOpen(showReleaseNotesPopover && releaseNotesTriggerFocusVisible);
   }
 
+  const confirmLocalInstall = async () => {
+    try {
+      return await ensureLocalApi().dialogs.confirm(
+        getDesktopUpdateInstallConfirmationMessage(
+          state ?? { availableVersion: null, downloadedVersion: null },
+          readInterruptedThreads(everything.restarts),
+        ),
+      );
+    } catch (error) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not confirm update",
+          description: error instanceof Error ? error.message : "Update confirmation failed.",
+        }),
+      );
+      return false;
+    }
+  };
+
   const handleAction = useStableCallback(async () => {
     const bridge = window.desktopBridge;
     setIsInstallRequested(false);
@@ -301,23 +321,7 @@ function SidebarUpdateControl() {
     }
 
     if (action === "install") {
-      let confirmed = false;
-      try {
-        confirmed = await ensureLocalApi().dialogs.confirm(
-          getDesktopUpdateInstallConfirmationMessage(state),
-        );
-      } catch (error) {
-        setIsActionPending(false);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not confirm update",
-            description: error instanceof Error ? error.message : "Update confirmation failed.",
-          }),
-        );
-        return;
-      }
-      if (!confirmed) {
+      if (!(await confirmLocalInstall())) {
         setIsActionPending(false);
         return;
       }
@@ -442,6 +446,7 @@ function SidebarUpdateControl() {
           {...(run.localVersion === null && action === "install" && window.desktopBridge
             ? {
                 onRestart: async () => {
+                  if (!(await confirmLocalInstall())) return;
                   saveUpdateEverythingResult({
                     localVersion: localUpdateVersion,
                     updatedServers: 0,
