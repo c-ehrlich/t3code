@@ -1,4 +1,4 @@
-import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
+import { type DesktopBridge, type DesktopUpdateState, EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
@@ -7,12 +7,14 @@ import { act, render } from "../../../test/render";
 import { ConfirmDialogHost } from "../ConfirmDialogHost";
 import { dispatchMenuAction } from "../../shortcuts/dispatcher";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
+import type { RestartingMachine } from "./updateEverything.logic";
 
 const mocks = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   return {
     update: null as DesktopUpdateState | null,
     hasUpdates: false,
+    restarts: [] as ReadonlyArray<RestartingMachine>,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -42,9 +44,21 @@ vi.mock("./useUpdateEverything", () => ({
     version: null,
     providerCount: 0,
     rows: [],
-    restarts: [],
+    restarts: mocks.restarts,
   }),
 }));
+vi.mock("~/state/threads", async (importOriginal) => {
+  const original = await importOriginal<typeof import("~/state/threads")>();
+  const { Atom } = await import("effect/reactivity");
+  const runningThreads = Atom.make([{ status: "running" }, { status: "running" }]);
+  return {
+    ...original,
+    environmentThreadShells: {
+      ...original.environmentThreadShells,
+      environmentThreadsAtom: () => runningThreads,
+    },
+  };
+});
 
 function nightlyUpdate(releaseNotes: DesktopUpdateState["releaseNotes"]): DesktopUpdateState {
   return {
@@ -71,9 +85,16 @@ const RELEASE_NOTES: DesktopUpdateState["releaseNotes"] = [
   { version: "0.0.50-nightly.2", items: ["Faster sidebar."], totalItems: 1 },
 ];
 
-function setup(update: DesktopUpdateState | null, { hasUpdates = false } = {}) {
+function setup(
+  update: DesktopUpdateState | null,
+  {
+    hasUpdates = false,
+    restarts = [],
+  }: { hasUpdates?: boolean; restarts?: ReadonlyArray<RestartingMachine> } = {},
+) {
   mocks.update = update;
   mocks.hasUpdates = hasUpdates;
+  mocks.restarts = restarts;
 }
 
 function publish(update: DesktopUpdateState | null) {
@@ -148,6 +169,34 @@ describe("SidebarUpdatePill menu install request", () => {
     await userEvent.keyboard("{Enter}");
     await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
     expect(installUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe("SidebarUpdatePill install confirm", () => {
+  it("counts the running threads the restart will interrupt", async () => {
+    window.desktopBridge = {
+      getLocalEnvironmentEnabled: () => false,
+      getLocalEnvironmentBootstraps: () => [],
+    } as unknown as DesktopBridge;
+    using _bridge = { [Symbol.dispose]: () => delete window.desktopBridge };
+    setup(
+      { ...nightlyUpdate([]), status: "downloaded", downloadedVersion: "0.0.50-nightly.2" },
+      { restarts: [{ environmentId: EnvironmentId.make("local"), continuesThreads: true }] },
+    );
+    await using _screen = await render(
+      <>
+        <ConfirmDialogHost />
+        <SidebarUpdatePill />
+      </>,
+    );
+
+    await act(() => dispatchMenuAction("install-update"));
+
+    await expect
+      .element(
+        page.getByText("2 running threads will be interrupted and can resume after the restart."),
+      )
+      .toBeVisible();
   });
 });
 

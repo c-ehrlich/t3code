@@ -37,7 +37,12 @@ export interface RestartingMachine {
 }
 
 export function collectRestartingMachines(
-  machines: ReadonlyArray<UpdateEverythingMachine>,
+  machines: ReadonlyArray<
+    Pick<
+      UpdateEverythingMachine,
+      "environmentId" | "serverConfig" | "connected" | "hostedByThisApp"
+    >
+  >,
   servers: ReadonlyArray<Pick<ServerUpdateTarget, "environmentId">>,
   installsLocal: boolean,
 ): RestartingMachine[] {
@@ -58,6 +63,16 @@ export function collectRestartingMachines(
       },
     ];
   });
+}
+
+/** Null when nothing is running. */
+export function describeInterruptedThreads(stopped: number, continuing: number): string | null {
+  const running = stopped + continuing;
+  if (running === 0) return null;
+  const threads = `${running} running ${running === 1 ? "thread" : "threads"}`;
+  if (stopped === 0) return `${threads} will be interrupted and can resume after the restart.`;
+  if (continuing === 0) return `${threads} will be interrupted.`;
+  return `${threads} will be interrupted. ${continuing} can resume after the restart.`;
 }
 
 export interface SkippedMachine {

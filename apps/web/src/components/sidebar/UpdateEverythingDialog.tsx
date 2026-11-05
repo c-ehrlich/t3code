@@ -4,6 +4,7 @@ import { Atom } from "effect/reactivity";
 import { ChevronRightIcon } from "lucide-react";
 import { Fragment, type RefObject, useRef } from "react";
 
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentThreadShells } from "~/state/threads";
 import {
   AlertDialog,
@@ -18,7 +19,11 @@ import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { ScrollArea } from "../ui/scroll-area";
-import type { RestartingMachine, UpdateEverythingRow } from "./updateEverything.logic";
+import {
+  describeInterruptedThreads,
+  type RestartingMachine,
+  type UpdateEverythingRow,
+} from "./updateEverything.logic";
 
 const isRunning = (status: string) =>
   status === "preparing" || status === "starting" || status === "running";
@@ -38,6 +43,20 @@ const runningThreadCountAtom = Atom.family((environmentIds: string) =>
       ),
   ).pipe(Atom.withLabel(`update-everything-running-threads:${environmentIds}`)),
 );
+
+const restartingIds = (restarts: ReadonlyArray<RestartingMachine>, continuesThreads: boolean) =>
+  restarts
+    .filter((machine) => machine.continuesThreads === continuesThreads)
+    .map((machine) => machine.environmentId)
+    .join("\n");
+
+/** A one-off read for confirmations, so always-mounted callers don't track every thread update. */
+export function readInterruptedThreads(restarts: ReadonlyArray<RestartingMachine>): string | null {
+  return describeInterruptedThreads(
+    appAtomRegistry.get(runningThreadCountAtom(restartingIds(restarts, false))),
+    appAtomRegistry.get(runningThreadCountAtom(restartingIds(restarts, true))),
+  );
+}
 
 interface UpdateEverythingDialogProps {
   readonly open: boolean;
@@ -103,24 +122,9 @@ function UpdateEverythingDialogContent({
   disabledReason = null,
   busy = false,
 }: UpdateEverythingDialogContentProps) {
-  const stopped = useAtomValue(
-    runningThreadCountAtom(
-      restarts
-        .filter((machine) => !machine.continuesThreads)
-        .map((machine) => machine.environmentId)
-        .join("\n"),
-    ),
-  );
-  const continuing = useAtomValue(
-    runningThreadCountAtom(
-      restarts
-        .filter((machine) => machine.continuesThreads)
-        .map((machine) => machine.environmentId)
-        .join("\n"),
-    ),
-  );
-  const running = stopped + continuing;
-  const threads = `${running} running ${running === 1 ? "thread" : "threads"}`;
+  const stopped = useAtomValue(runningThreadCountAtom(restartingIds(restarts, false)));
+  const continuing = useAtomValue(runningThreadCountAtom(restartingIds(restarts, true)));
+  const interruptedThreads = describeInterruptedThreads(stopped, continuing);
   const restarting = new Set(restarts.map((machine) => machine.environmentId));
   const updating = rows.filter((row) => row.app !== null || row.providers.length > 0);
   const skipped = rows.filter((row) => row.skipped !== null);
@@ -218,13 +222,9 @@ function UpdateEverythingDialogContent({
           <p className="self-center text-sm max-sm:order-1 max-sm:text-center sm:mr-auto">
             {disabledReason}
           </p>
-        ) : running > 0 ? (
+        ) : interruptedThreads !== null ? (
           <p className="self-center text-muted-foreground text-sm max-sm:order-1 max-sm:text-center sm:mr-auto">
-            {stopped === 0
-              ? `${threads} will be interrupted and can resume after the restart.`
-              : continuing === 0
-                ? `${threads} will be interrupted.`
-                : `${threads} will be interrupted. ${continuing} can resume after the restart.`}
+            {interruptedThreads}
           </p>
         ) : null}
         <AlertDialogClose ref={cancelRef} render={<Button variant="outline" disabled={busy} />}>

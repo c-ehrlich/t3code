@@ -6,6 +6,7 @@ import {
   collectRestartingMachines,
   localSwitchBlockReason,
   collectServerUpdateTargets,
+  describeInterruptedThreads,
   describeUpdateCapsule,
   describeUpdateEverything,
   runUpdateEverything,
@@ -312,6 +313,17 @@ describe("collectRestartingMachines", () => {
     expect(
       collectRestartingMachines(machines, servers, false).map((entry) => entry.environmentId),
     ).toEqual(["alvin", "opted-out", "old"]);
+  });
+});
+
+describe("describeInterruptedThreads", () => {
+  it.each([
+    [0, 0, null],
+    [1, 0, "1 running thread will be interrupted."],
+    [0, 2, "2 running threads will be interrupted and can resume after the restart."],
+    [1, 2, "3 running threads will be interrupted. 2 can resume after the restart."],
+  ])("with %i stopped and %i continuing", (stopped, continuing, expected) => {
+    expect(describeInterruptedThreads(stopped, continuing)).toBe(expected);
   });
 });
 
